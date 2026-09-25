@@ -9,7 +9,8 @@ mod position;
 mod zobrist;
 
 pub use position::{
-    Color, FenError, Piece, PieceKind, Position, PositionError, Square, Undo,
-    CASTLE_BK, CASTLE_BQ, CASTLE_WK, CASTLE_WQ,
+    file_of, parse_square, rank_of, square_color, square_name, Color, FenError,
+    Piece, PieceKind, Position, PositionError, Square, Undo, CASTLE_BK,
+    CASTLE_BQ, CASTLE_WK, CASTLE_WQ,
 };
 pub(crate) use zobrist::keys;

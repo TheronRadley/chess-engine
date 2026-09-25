@@ -67,7 +67,7 @@ fn emit_result(out: &mut impl Write, result: &SearchResult) -> io::Result<()> {
 fn set_option(words: &[&str], engine: Option<&mut Engine>, multipv: &mut usize) -> Result<(), String> {
     if words.len() < 4 || !words[0].eq_ignore_ascii_case("name") { return Err("setoption syntax is `setoption name <Name> value <Value>`".into()); }
     let value_at = words.iter().position(|s| s.eq_ignore_ascii_case("value")).ok_or_else(|| "setoption requires `value`".to_owned())?;
-    let name = words[1..value_at].join(" "); let value = words.get(value_at + 1).ok_or_else(|| "setoption value is missing".to_owned())?;
+    let name = words[1..value_at].join(" "); let value = *words.get(value_at + 1).ok_or_else(|| "setoption value is missing".to_owned())?;
     match name.to_ascii_lowercase().as_str() {
         "hash" => { let mb = value.parse::<usize>().map_err(|_| "Hash must be an integer".to_owned())?.clamp(1, 4096); engine.ok_or_else(|| "cannot change Hash during search".to_owned())?.set_hash_mb(mb); }
         "multipv" => { *multipv = value.parse::<usize>().map_err(|_| "MultiPV must be an integer".to_owned())?.clamp(1, 5); if let Some(e) = engine { e.set_default_multipv(*multipv); } }

@@ -7,7 +7,7 @@ pub fn perft(position: &mut Position, depth: u8) -> u64 {
     if depth == 0 { return 1; }
     let moves = position.legal_moves_mut();
     if depth == 1 { return moves.len() as u64; }
-    let mut nodes = 0;
+    let mut nodes: u64 = 0;
     for mv in moves.iter().copied() { let undo = position.make_move_unchecked(mv); nodes = nodes.saturating_add(perft(position, depth - 1)); position.unmake_move(mv, undo); }
     nodes
 }
