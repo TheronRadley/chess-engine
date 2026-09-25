@@ -18,7 +18,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Compile all targets
-        run: cargo build --release --all-targets
+        shell: bash
+        run: |
+          set +e
+          cargo build --release --all-targets >build.log 2>&1
+          status=$?
+          cat build.log
+          if [ "$status" -ne 0 ]; then
+            # Keep compiler diagnostics retrievable through the Checks API when
+            # an environment cannot download the otherwise-standard raw log.
+            encoded="$(sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' build.log)"
+            echo "::error title=Rust compilation failed::$encoded"
+            exit "$status"
+          fi
       - name: Run correctness tests
         # The 119M-node start-position depth-6 case remains available as an
         # explicit test, but is excluded from routine CI to keep feedback
