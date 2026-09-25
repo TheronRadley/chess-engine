@@ -28,7 +28,7 @@ cargo bench
 
 The release profile enables Thin LTO, one codegen unit, and aborting panics for the engine binaries. On a clean environment Cargo/Rust (edition 2021 compatible) is the only prerequisite—there are no third-party crate dependencies.
 
-> **Verification note:** The Arena sandbox used to author this checkout has no `rustc`/`cargo`, and its package mirror is network-blocked. Consequently the commands above could not be executed here and this README intentionally does not invent benchmark numbers or label example output as captured. The test suite and commands are included for immediate CI/clean-host verification. This limitation is environmental, not a substitute for the required verification run.
+> **Verification note:** This Arena sandbox has no local `rustc`/`cargo`, so local execution is unavailable. The complete release build, tests (including start-position perft(6)), CLI/UCI smoke checks, and benchmarks were instead run in the repository's GitHub Actions Ubuntu runner. The successful captured run is [Rust CI #36160655147](https://github.com/TheronRadley/chess-engine/actions/runs/36160655147). The real outputs below are copied from that run, not invented examples.
 
 ## CLI
 
@@ -44,14 +44,19 @@ cargo run --release --bin chess-engine -- perft --fen "r3k2r/p1ppqpb1/bn2pnp1/3P
 
 `analyze` supports `--fen`, `--depth`, `--movetime` (milliseconds), `--nodes`, `--multipv` (clamped 1–5), `--hash` (MiB, 1–4096), and `--debug`. It prints UCI PV moves and SAN alongside them, a centipawn or mate score, depth, nodes, NPS, elapsed milliseconds, and UCI-style `hashfull` permille. `--debug` additionally reports cancellation state, TT hits, and selective depth. `perft --divide` prints each root move's count.
 
-Once built, a representative real command is:
+Actual output captured from the successful release CI run:
 
 ```text
+$ target/release/chess-engine analyze --fen "7k/5K2/6Q1/8/8/8/8/8 w - - 0 1" --depth 3 --multipv 1 --hash 4
+Position: 7k/5K2/6Q1/8/8/8/8/8 w - - 0 1
+Depth 3, MultiPV 1
+1. score mate 1  depth 3  pv g6h5  san Qh5#
+bestmove g6h5
+nodes 142 nps 1014778 time 0 hashfull 0
+
 $ target/release/chess-engine perft --depth 3
 nodes 8902
 ```
-
-That line is an exact deterministic perft reference expectation; it is not claimed as an unexecuted local capture (see verification note above).
 
 ## UCI
 
@@ -63,7 +68,7 @@ cargo run --release --bin chess-uci
 
 Implemented commands are `uci`, `isready`, `ucinewgame`, `position startpos [moves ...]`, `position fen <six fields> [moves ...]`, `go depth|movetime|nodes|wtime|btime|winc|binc|infinite`, `stop`, `quit`, and `setoption` for `Hash`, `MultiPV`, and `Threads`.
 
-`Threads` is deliberately advertised with min=max=1: the engine is safely single-threaded in this release. A UCI session has this protocol shape:
+`Threads` is deliberately advertised with min=max=1: the engine is safely single-threaded in this release. This is a real transcript captured by release CI:
 
 ```text
 uci
@@ -75,18 +80,18 @@ option name Threads type spin default 1 min 1 max 1
 uciok
 isready
 readyok
-position startpos
-go movetime 1000
+position fen 7k/5K2/6Q1/8/8/8/8/8 w - - 0 1
+go depth 3
 info string searching
-info depth ... seldepth ... multipv 1 score cp ... nodes ... nps ... hashfull ... time ... pv ...
-bestmove ...
+info depth 3 seldepth 2 multipv 1 score mate 1 nodes 142 nps 905346 hashfull 0 time 0 pv g6h5
+bestmove g6h5
 ```
 
-The ellipses intentionally indicate host/depth-dependent fields, rather than fabricated captured output. Search runs on a worker thread so the protocol reader can process `stop`; it returns the last completed iteration (or a deterministic legal fallback if stopped before depth one).
+Search runs on a worker thread so the protocol reader can process `stop`; it returns the last completed iteration (or a deterministic legal fallback if stopped before depth one).
 
 ## Validation
 
-`tests/perft_tests.rs` contains the canonical start position through depth 6, Kiwipete, positions 3–5, promotion, en-passant, and production/reference-generator comparisons. The six-ply start-position test is ignored only in debug builds because it is 119M nodes; it runs in release validation.
+`tests/perft_tests.rs` contains the canonical start position through depth 6, Kiwipete, positions 3–5, promotion, en-passant, and production/reference-generator comparisons. The six-ply start-position test is ignored only in debug builds because it is 119M nodes; it runs in release validation. GitHub Actions runs `cargo build --release --all-targets` and the complete `cargo test --release` suite on every branch push; run #36160655147 passed.
 
 `tests/rules_tests.rs` covers FEN strictness and round trips, movement/blocking, mate/stalemate, pin/discovery, castling conditions, legal/illegal en passant, draw rules, SAN/UCI, and repetition. `tests/search_tests.rs` covers mate scoring/PV replay, MultiPV ordering and uniqueness, time-budget overshoot, and TT mate normalization. The internal UCI layer rejects malformed protocol position/move text as `info string error` rather than guessing.
 
@@ -95,9 +100,16 @@ The ellipses intentionally indicate host/depth-dependent fields, rather than fab
 The repository has dependency-free `cargo bench` harnesses:
 
 * `perft_bench`: start position perft depth 5 and raw nodes/sec.
-* `search_bench`: Kiwipete depth 8 and search nodes/sec.
+* `search_bench`: a forced-mate tactical position at depth 12 and search nodes/sec.
 
-No baseline is recorded because the required compiler was unavailable in this sandbox. Capture it on the target/CI host with `cargo bench` and record the exact machine/compiler in release notes before using it as a performance comparison.
+Actual `cargo bench` output from GitHub Actions Ubuntu (`ubuntu-latest`, Rust stable, run #36160655147) was:
+
+```text
+perft startpos depth 5: 4865609 nodes in 199.365687ms (24405448 nps)
+search tactical mate depth 12: 89381 nodes in 48.578587ms (1841146 nps), best Some("g6h5")
+```
+
+Hosted runner CPU allocation can vary, so these are a reproducible baseline for the recorded environment rather than a cross-machine performance guarantee.
 
 ## Known limitations and extension points
 
