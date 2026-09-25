@@ -53,6 +53,24 @@ jobs:
           printf '%s\n' "$output"
           grep -qx 'uciok' <<<"$output"
           grep -qx 'readyok' <<<"$output"
+      - name: Capture CLI, UCI, and benchmark examples
+        shell: bash
+        run: |
+          emit_notice() {
+            local title="$1"
+            local text="$2"
+            local encoded
+            encoded="$(printf '%s' "$text" | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g')"
+            echo "::notice title=$title::$encoded"
+          }
+          cli="$(target/release/chess-engine analyze --fen '7k/5K2/6Q1/8/8/8/8/8 w - - 0 1' --depth 3 --multipv 1 --hash 4)"
+          uci="$({ printf 'uci\nisready\nposition fen 7k/5K2/6Q1/8/8/8/8/8 w - - 0 1\ngo depth 3\n'; sleep 1; printf 'quit\n'; } | timeout 10s target/release/chess-uci)"
+          perft_bench="$(cargo bench --bench perft_bench)"
+          search_bench="$(cargo bench --bench search_bench)"
+          printf '%s\n%s\n%s\n%s\n' "$cli" "$uci" "$perft_bench" "$search_bench"
+          emit_notice 'Captured CLI output' "$cli"
+          emit_notice 'Captured UCI output' "$uci"
+          emit_notice 'Captured benchmarks' "$perft_bench\n$search_bench"
 
   full-perft:
     name: Full depth-6 perft validation
