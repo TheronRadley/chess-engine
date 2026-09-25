@@ -5,8 +5,11 @@ use chess_engine::{Engine, Position, SearchLimits, STARTPOS_FEN};
 fn finds_a_forced_mate_and_legal_pv() {
     let mut p = Position::from_fen("7k/5K2/6Q1/8/8/8/8/8 w - - 0 1").unwrap();
     let mut engine = Engine::new(4); let result = engine.search(&mut p, SearchLimits { depth: Some(3), movetime: None, nodes: None, multipv: 1 }, None);
-    let line = result.lines.first().expect("a legal root move"); assert!(line.score > 29_000, "score was {}", line.score); assert_eq!(line.pv[0].to_uci(), "g6g7");
+    let line = result.lines.first().expect("a legal root move"); assert!(line.score > 29_000, "score was {}", line.score);
     let mut replay = p.clone(); for &mv in &line.pv { replay.try_make_move(mv).expect("PV must replay legally"); }
+    // Both Qg7# and Qh5# are valid mate-in-one moves in this position; check
+    // the chess property rather than hard-coding an arbitrary move-order tie.
+    assert!(replay.is_checkmate(), "PV did not end in checkmate: {:?}", line.pv.iter().map(|m| m.to_uci()).collect::<Vec<_>>());
 }
 
 #[test]
