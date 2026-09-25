@@ -5,11 +5,11 @@ use std::time::Duration;
 use chess_engine::{perft, moves, Engine, Position, SearchLimits, STARTPOS_FEN};
 
 fn usage() {
-    eprintln!("Usage:\n  chess-engine analyze --fen <FEN> [--depth N] [--movetime MS] [--nodes N] [--multipv K] [--hash MB]\n  chess-engine perft --fen <FEN> --depth N [--divide]\n\nIf --fen is omitted, startpos is used.");
+    eprintln!("Usage:\n  chess-engine analyze --fen <FEN> [--depth N] [--movetime MS] [--nodes N] [--multipv K] [--hash MB] [--debug]\n  chess-engine perft --fen <FEN> --depth N [--divide]\n\nIf --fen is omitted, startpos is used.");
 }
 fn value<'a>(args: &'a [String], i: &mut usize, flag: &str) -> Result<&'a str, String> { *i += 1; args.get(*i).map(String::as_str).ok_or_else(|| format!("{flag} needs a value")) }
-fn parse_args(args: &[String]) -> Result<(String, Option<u8>, Option<u64>, Option<u64>, usize, usize, bool), String> {
-    let mut fen = STARTPOS_FEN.to_owned(); let mut depth = None; let mut movetime = None; let mut nodes = None; let mut multipv = 1; let mut hash = 16; let mut divide = false; let mut i = 0;
+fn parse_args(args: &[String]) -> Result<(String, Option<u8>, Option<u64>, Option<u64>, usize, usize, bool, bool), String> {
+    let mut fen = STARTPOS_FEN.to_owned(); let mut depth = None; let mut movetime = None; let mut nodes = None; let mut multipv = 1; let mut hash = 16; let mut divide = false; let mut debug = false; let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--fen" => fen = value(args, &mut i, "--fen")?.to_owned(),
@@ -19,16 +19,17 @@ fn parse_args(args: &[String]) -> Result<(String, Option<u8>, Option<u64>, Optio
             "--multipv" => multipv = value(args, &mut i, "--multipv")?.parse::<usize>().map_err(|_| "--multipv must be an integer".to_owned())?.clamp(1, 5),
             "--hash" => hash = value(args, &mut i, "--hash")?.parse::<usize>().map_err(|_| "--hash must be an integer in MiB".to_owned())?.clamp(1, 4096),
             "--divide" => divide = true,
+            "--debug" => debug = true,
             other => return Err(format!("unknown argument `{other}`")),
         }
         i += 1;
     }
-    Ok((fen, depth, movetime, nodes, multipv, hash, divide))
+    Ok((fen, depth, movetime, nodes, multipv, hash, divide, debug))
 }
 fn main() -> ExitCode {
     let mut argv = env::args().skip(1).collect::<Vec<_>>();
     if argv.is_empty() || matches!(argv[0].as_str(), "-h" | "--help") { usage(); return ExitCode::SUCCESS; }
-    let command = argv.remove(0); let (fen, depth, movetime, nodes, multipv, hash, divide) = match parse_args(&argv) { Ok(v) => v, Err(e) => { eprintln!("error: {e}"); usage(); return ExitCode::from(2); } };
+    let command = argv.remove(0); let (fen, depth, movetime, nodes, multipv, hash, divide, debug) = match parse_args(&argv) { Ok(v) => v, Err(e) => { eprintln!("error: {e}"); usage(); return ExitCode::from(2); } };
     let mut position = match Position::from_fen(&fen) { Ok(p) => p, Err(e) => { eprintln!("error: {e}"); return ExitCode::from(2); } };
     match command.as_str() {
         "perft" => {
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
                 println!("{}. score {}  depth {}  pv {}{}", line.rank, chess_engine::search::format_score(line.score), line.depth, line.pv.iter().map(|m| m.to_uci()).collect::<Vec<_>>().join(" "), if san.is_empty() { String::new() } else { format!("  san {san}") });
             }
             let best = result.best_move().map(|m| m.to_uci()).unwrap_or_else(|| "0000".into()); println!("bestmove {best}"); println!("nodes {} nps {} time {} hashfull {}", result.nodes, result.nps, result.elapsed.as_millis(), result.hashfull);
+            if debug { println!("debug aborted {} tt_hits {} seldepth {}", result.aborted, result.tt_hits, result.seldepth); }
         }
         _ => { eprintln!("error: unknown command `{command}`"); usage(); return ExitCode::from(2); }
     }

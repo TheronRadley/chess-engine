@@ -42,7 +42,7 @@ cargo run --release --bin chess-engine -- analyze \
 cargo run --release --bin chess-engine -- perft --fen "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1" --depth 4
 ```
 
-`analyze` supports `--fen`, `--depth`, `--movetime` (milliseconds), `--nodes`, `--multipv` (clamped 1–5), and `--hash` (MiB, 1–4096). It prints UCI PV moves and SAN alongside them, a centipawn or mate score, depth, nodes, NPS, elapsed milliseconds, and UCI-style `hashfull` permille. `perft --divide` prints each root move's count.
+`analyze` supports `--fen`, `--depth`, `--movetime` (milliseconds), `--nodes`, `--multipv` (clamped 1–5), `--hash` (MiB, 1–4096), and `--debug`. It prints UCI PV moves and SAN alongside them, a centipawn or mate score, depth, nodes, NPS, elapsed milliseconds, and UCI-style `hashfull` permille. `--debug` additionally reports cancellation state, TT hits, and selective depth. `perft --divide` prints each root move's count.
 
 Once built, a representative real command is:
 

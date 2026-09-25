@@ -355,3 +355,32 @@ impl Position {
 #[inline] pub const fn square_color(sq: Square) -> bool { ((file_of(sq) + rank_of(sq)) & 1) != 0 }
 pub fn square_name(sq: Square) -> String { let mut out = String::with_capacity(2); out.push((b'a' + file_of(sq)) as char); out.push((b'1' + rank_of(sq)) as char); out }
 pub fn parse_square(text: &str) -> Result<Square, String> { let b = text.as_bytes(); if b.len() != 2 || !(b'a'..=b'h').contains(&b[0]) || !(b'1'..=b'8').contains(&b[1]) { return Err(format!("invalid square `{text}`")); } Ok((b[0] - b'a') + 8 * (b[1] - b'1')) }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn make_unmake_restores_every_tracked_state() {
+        for fen in [
+            crate::STARTPOS_FEN,
+            "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+            "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+            "7k/P7/8/8/8/8/7p/K7 w - - 0 1",
+        ] {
+            let mut position = Position::from_fen(fen).expect("test FEN");
+            let original_fen = position.to_fen();
+            let original_key = position.key;
+            let original_history = position.history.clone();
+            let moves = position.legal_moves_mut();
+            for mv in moves.iter().copied() {
+                let undo = position.make_move_unchecked(mv);
+                assert_eq!(position.key, position.recompute_key(), "key after {} from {fen}", mv.to_uci());
+                position.unmake_move(mv, undo);
+                assert_eq!(position.to_fen(), original_fen, "FEN after {} from {fen}", mv.to_uci());
+                assert_eq!(position.key, original_key, "key after {} from {fen}", mv.to_uci());
+                assert_eq!(position.history, original_history, "history after {} from {fen}", mv.to_uci());
+            }
+        }
+    }
+}
