@@ -36,7 +36,17 @@ jobs:
         # explicit test, but is excluded from routine CI to keep feedback
         # bounded on shared runners. It is required in scheduled/manual
         # validation before release.
-        run: cargo test --release -- --skip start_position_perft_six
+        shell: bash
+        run: |
+          set +e
+          cargo test --release -- --skip start_position_perft_six >test.log 2>&1
+          status=$?
+          cat test.log
+          if [ "$status" -ne 0 ]; then
+            encoded="$(sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' test.log)"
+            echo "::error title=Rust tests failed::$encoded"
+            exit "$status"
+          fi
       - name: Exercise command-line perft
         run: target/release/chess-engine perft --depth 3
       - name: Exercise UCI handshake
