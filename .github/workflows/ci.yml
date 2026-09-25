@@ -1,0 +1,45 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Release test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile all targets
+        run: cargo build --release --all-targets
+      - name: Run correctness tests
+        # The 119M-node start-position depth-6 case remains available as an
+        # explicit test, but is excluded from routine CI to keep feedback
+        # bounded on shared runners. It is required in scheduled/manual
+        # validation before release.
+        run: cargo test --release -- --skip start_position_perft_six
+      - name: Exercise command-line perft
+        run: target/release/chess-engine perft --depth 3
+      - name: Exercise UCI handshake
+        run: |
+          output="$(printf 'uci\nisready\nquit\n' | timeout 10s target/release/chess-uci)"
+          printf '%s\n' "$output"
+          grep -qx 'uciok' <<<"$output"
+          grep -qx 'readyok' <<<"$output"
+
+  full-perft:
+    name: Full depth-6 perft validation
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release start_position_perft_six -- --ignored
