@@ -22,7 +22,7 @@ All implementation parameters that are not chess rules are collected in `src/eva
 ```sh
 cargo build --release
 cargo test
-cargo test --release -- --ignored     # includes the 119,060,324-node perft(6)
+cargo test --release                 # includes the 119,060,324-node perft(6)
 cargo bench
 ```
 
