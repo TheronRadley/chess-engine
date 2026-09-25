@@ -1,0 +1,42 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "chess-engine"
+version = "0.1.0"
+edition = "2021"
+description = "A correctness-first, single-threaded Rust chess engine"
+license = "MIT"
+authors = ["TheronRadley contributors"]
+
+[lib]
+name = "chess_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chess-engine"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "chess-uci"
+path = "src/bin/uci_main.rs"
+
+[profile.release]
+# Native speed matters for alpha-beta depth. Keep one codegen unit for cross-module inlining.
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[[bench]]
+name = "perft_bench"
+harness = false
+
+[[bench]]
+name = "search_bench"
+harness = false
+
+[features]
+default = []
+# Kept for downstream users that want to call the deliberately slow reference generator.
+reference-movegen = []
