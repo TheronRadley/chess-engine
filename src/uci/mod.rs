@@ -106,7 +106,7 @@ fn parse_go(words: &[&str], side: crate::board::Color, multipv: usize) -> Result
             "binc" => { binc = need(i)?.parse().map_err(|_| "go binc must be milliseconds".to_owned())?; i += 2; }
             "infinite" => { i += 1; }
             "ponder" => { i += 1; }
-            unknown => return Err(format!("unsupported go token `{unknown}`)),
+            unknown => return Err(format!("unsupported go token `{unknown}`")),
         }
     }
     if limits.movetime.is_none() {
