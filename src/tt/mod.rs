@@ -9,13 +9,32 @@ pub enum Bound { Exact, Lower, Upper }
 pub struct TTEntry { pub key: u64, pub depth: i16, pub score: i32, pub bound: Bound, pub best: Move, pub generation: u8, pub valid: bool }
 impl Default for TTEntry { fn default() -> Self { Self { key: 0, depth: -1, score: 0, bound: Bound::Upper, best: Move::NULL, generation: 0, valid: false } } }
 
+/// Hard cap on the transposition table so an oversized `Hash` option can never
+/// force a multi-gigabyte allocation (or an out-of-memory abort).
+const MAX_TT_MEGABYTES: usize = 1024;
+
 pub struct TranspositionTable { entries: Vec<TTEntry>, mask: usize, generation: u8 }
 impl TranspositionTable {
     /// Defaults to 16 MiB when constructed by `Engine`. A power-of-two table
     /// permits a fast, deterministic index; sizes are rounded down, never up.
+    /// Allocation is capped and falls back to smaller sizes on failure so an
+    /// oversized hash request is degraded gracefully instead of aborting.
     pub fn new(megabytes: usize) -> Self {
-        let bytes = megabytes.max(1).saturating_mul(1024 * 1024); let requested = (bytes / std::mem::size_of::<TTEntry>()).max(1); let count = requested.next_power_of_two() >> if requested.is_power_of_two() { 0 } else { 1 };
-        Self { entries: vec![TTEntry::default(); count], mask: count - 1, generation: 0 }
+        let mb = megabytes.min(MAX_TT_MEGABYTES).max(1);
+        let bytes = mb.saturating_mul(1024 * 1024);
+        let entry_size = std::mem::size_of::<TTEntry>().max(1);
+        let requested = (bytes / entry_size).max(1);
+        let mut count = requested.next_power_of_two() >> if requested.is_power_of_two() { 0 } else { 1 };
+        // Keep halving until the allocation succeeds; never panic on OOM.
+        let entries = loop {
+            match Vec::try_with_capacity(count) {
+                Ok(mut v) => { v.resize_with(count, Default::default); break v; }
+                Err(_) if count > 1 => { count >>= 1; }
+                Err(_) => { break Vec::new(); }
+            }
+        };
+        let mask = if entries.is_empty() { 0 } else { entries.len() - 1 };
+        Self { entries, mask, generation: 0 }
     }
     pub fn resize(&mut self, megabytes: usize) { *self = Self::new(megabytes); }
     pub fn clear(&mut self) { self.entries.fill(TTEntry::default()); self.generation = 0; }

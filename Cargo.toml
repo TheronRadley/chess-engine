@@ -38,5 +38,3 @@ harness = false
 
 [features]
 default = []
-# Kept for downstream users that want to call the deliberately slow reference generator.
-reference-movegen = []

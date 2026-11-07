@@ -29,6 +29,16 @@ fn canonical_perft_positions() {
 }
 
 #[test]
+fn divide_zero_is_empty_consistent_with_perft_zero() {
+    // perft(0) == 1 (the position itself), so divide(0) has no root moves to
+    // report and must not return a list of `1`s that sums to the move count.
+    let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let mut p = Position::from_fen(fen).expect("reference FEN");
+    let breakdown = perft::divide(&mut p, 0);
+    assert!(breakdown.is_empty(), "divide(0) must be empty, got {:?}", breakdown);
+}
+
+#[test]
 fn production_and_copy_make_oracle_agree() {
     for fen in [
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",

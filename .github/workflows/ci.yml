@@ -74,10 +74,24 @@ jobs:
 
   full-perft:
     name: Full depth-6 perft validation
+    # Repaired: `start_position_perft_six` is only `#[ignore]`d in debug
+    # builds, so a release run with `--ignored` selects zero tests. Run it
+    # without `--ignored`; in release it is not ignored and runs the 119M-node
+    # reference count, while debug builds skip it.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --release start_position_perft_six -- --ignored
+      - run: cargo test --release start_position_perft_six
+
+  lint:
+    name: Formatting and clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings

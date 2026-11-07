@@ -19,14 +19,18 @@ const MAX_PLY: usize = 128;
 const ASPIRATION: i32 = 40;
 const FUTILITY_MARGIN_PER_PLY: i32 = 95;
 
+/// `infinite` means "search until told to stop": no depth, clock, or node
+/// limit. It is distinct from a plain `go` with no arguments, which still
+/// defaults to a fixed depth so an unattended engine never runs forever.
 #[derive(Clone, Debug)]
 pub struct SearchLimits {
     pub depth: Option<u8>,
     pub movetime: Option<Duration>,
     pub nodes: Option<u64>,
     pub multipv: usize,
+    pub infinite: bool,
 }
-impl Default for SearchLimits { fn default() -> Self { Self { depth: Some(8), movetime: None, nodes: None, multipv: 1 } } }
+impl Default for SearchLimits { fn default() -> Self { Self { depth: Some(8), movetime: None, nodes: None, multipv: 1, infinite: false } } }
 
 #[derive(Clone, Debug)]
 pub struct SearchLine { pub rank: usize, pub score: i32, pub depth: u8, pub pv: Vec<Move> }
@@ -45,11 +49,11 @@ impl Engine {
     pub fn search(&mut self, position: &mut Position, mut limits: SearchLimits, stop: Option<Arc<AtomicBool>>) -> SearchResult {
         if limits.multipv == 0 { limits.multipv = self.default_multipv; }
         limits.multipv = limits.multipv.clamp(1, 5);
-        let max_depth = limits.depth.unwrap_or(64).min(64);
         self.tt.new_search();
         let start = Instant::now();
-        // Two milliseconds protects the requested hard wall on ordinary clocks.
-        let deadline = limits.movetime.map(|d| start + d.saturating_sub(Duration::from_millis(2)));
+        let max_depth = if limits.infinite { u8::MAX } else { limits.depth.unwrap_or(64).min(64) };
+        // `infinite` searches run until stopped: no wall-clock deadline is set.
+        let deadline = if limits.infinite { None } else { limits.movetime.map(|d| start + d.saturating_sub(Duration::from_millis(2))) };
         let mut searcher = Searcher::new(&mut self.tt, deadline, limits.nodes, stop);
         let mut completed: Vec<SearchLine> = Vec::new(); let mut completed_depth = 0_u8; let mut previous = 0;
         for depth in 1..=max_depth {
@@ -109,9 +113,11 @@ impl<'a> Searcher<'a> {
     }
     fn root_single(&mut self, position: &mut Position, depth: i32, mut alpha: i32, beta: i32) -> Option<SearchLine> {
         self.pv_len[0] = 0;
-        if position.is_draw() { return Some(SearchLine { rank: 1, score: 0, depth: depth as u8, pv: position.legal_moves().iter().copied().take(1).collect() }); }
+        // Checkmate takes precedence over any draw claim: a mated side with the
+        // halfmove clock at 100 is still mated, not drawn.
         let mut moves = position.legal_moves_mut();
         if moves.is_empty() { return Some(SearchLine { rank: 1, score: if position.in_check(position.side_to_move()) { -MATE_SCORE } else { 0 }, depth: depth as u8, pv: Vec::new() }); }
+        if position.is_draw() { return Some(SearchLine { rank: 1, score: 0, depth: depth as u8, pv: moves.iter().copied().take(1).collect() }); }
         let key = position.key(); let tt_move = self.tt.probe(key).map(|e| e.best).unwrap_or(Move::NULL); self.order_moves(position, &mut moves, tt_move, 0);
         let original_alpha = alpha; let mut best = Move::NULL; let mut best_pv = Vec::new();
         for (index, mv) in moves.iter().copied().enumerate() {
@@ -131,8 +137,9 @@ impl<'a> Searcher<'a> {
         Some(SearchLine { rank: 1, score: alpha, depth: depth as u8, pv: best_pv })
     }
     fn root_multi(&mut self, position: &mut Position, depth: i32, count: usize) -> Option<Vec<SearchLine>> {
-        if position.is_draw() { return Some(vec![SearchLine { rank: 1, score: 0, depth: depth as u8, pv: position.legal_moves().iter().copied().take(1).collect() }]); }
-        let mut moves = position.legal_moves_mut(); if moves.is_empty() { return Some(vec![SearchLine { rank: 1, score: if position.in_check(position.side_to_move()) { -MATE_SCORE } else { 0 }, depth: depth as u8, pv: Vec::new() }]); }
+        let mut moves = position.legal_moves_mut();
+        if moves.is_empty() { return Some(vec![SearchLine { rank: 1, score: if position.in_check(position.side_to_move()) { -MATE_SCORE } else { 0 }, depth: depth as u8, pv: Vec::new() }]); }
+        if position.is_draw() { return Some(vec![SearchLine { rank: 1, score: 0, depth: depth as u8, pv: moves.iter().copied().take(1).collect() }]); }
         let tt_move = self.tt.probe(position.key()).map(|e| e.best).unwrap_or(Move::NULL); self.order_moves(position, &mut moves, tt_move, 0);
         let mut lines = Vec::with_capacity(moves.len());
         for mv in moves.iter().copied() {
@@ -194,6 +201,7 @@ impl<'a> Searcher<'a> {
         let in_check = position.in_check(position.side_to_move()); let stand = evaluate(position);
         if !in_check { if stand >= beta { return stand; } if stand > alpha { alpha = stand; } }
         let mut moves = position.legal_moves_mut(); if in_check && moves.is_empty() { return -MATE_SCORE + ply as i32; }
+        if moves.is_empty() { return 0; } // stalemate: a drawn position must score zero, not the static evaluation
         self.order_moves(position, &mut moves, Move::NULL, ply);
         for mv in moves.iter().copied() {
             let capture = is_capture(position, mv); if !in_check && !capture && !mv.is_promotion() { continue; }

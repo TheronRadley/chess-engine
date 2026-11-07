@@ -151,7 +151,16 @@ impl Position {
     /// It intentionally does not try to prove that every legal-looking study
     /// position is reachable from the initial game.
     pub fn validate(&self) -> Result<(), PositionError> {
+        const MAX_PIECES: [u32; 6] = [8, 2, 2, 2, 1, 1]; // pawn, knight, bishop, rook, queen, king
         for color in [Color::White, Color::Black] {
+            let base = color.index() * 6;
+            let mut total = 0_u32;
+            for kind in PieceKind::ALL {
+                let count = self.pieces[base + kind as usize].count_ones();
+                if count > MAX_PIECES[kind as usize] { return Err(PositionError(format!("{color:?} has too many {kind:?}"))); }
+                total += count;
+            }
+            if total > 16 { return Err(PositionError(format!("{color:?} has more than sixteen pieces"))); }
             if self.pieces[color.index() * 6 + PieceKind::King as usize].count_ones() != 1 { return Err(PositionError(format!("{color:?} must have exactly one king"))); }
             if self.pieces[color.index() * 6 + PieceKind::Pawn as usize].count_ones() > 8 { return Err(PositionError(format!("{color:?} has more than eight pawns"))); }
             let pawns = self.pieces[color.index() * 6 + PieceKind::Pawn as usize];
@@ -213,6 +222,32 @@ impl Position {
     #[inline] pub fn side_to_move(&self) -> Color { self.side_to_move }
     #[inline] pub fn castling_rights(&self) -> u8 { self.castling }
     #[inline] pub fn en_passant(&self) -> Option<Square> { self.ep }
+
+    /// Whether a legal en-passant capture to `ep` exists for the side to move.
+    /// Zobrist hashing only distinguishes en-passant squares when a capture is
+    /// actually available, so a "dead" en-passant square does not split
+    /// repetition classes between otherwise identical positions.
+    pub(crate) fn ep_capture_legal(&self) -> bool {
+        let Some(ep) = self.ep else { return false; };
+        let us = self.side_to_move();
+        let from_rank = if us == Color::White { rank_of(ep) as i8 - 1 } else { rank_of(ep) as i8 + 1 };
+        for df in [-1_i8, 1_i8] {
+            let f = file_of(ep) as i8 + df;
+            if !(0..8).contains(&f) { continue; }
+            let from = (from_rank * 8 + f) as Square;
+            if self.piece_at(from) != Some(Piece { color: us, kind: PieceKind::Pawn }) { continue; }
+            let mv = Move::new(from, ep, MoveKind::EnPassant);
+            let mut copy = self.clone();
+            // Clear the ep square before making the capture so the move's own
+            // Zobrist re-hashing (which looks at `ep`) cannot recurse back into
+            // this method. The capture mechanics do not depend on the ep field.
+            copy.ep = None;
+            let _undo = copy.make_move_unchecked(mv);
+            if !copy.in_check(us) { return true; }
+        }
+        false
+    }
+
     #[inline] pub fn halfmove_clock(&self) -> u16 { self.halfmove }
     #[inline] pub fn fullmove_number(&self) -> u16 { self.fullmove }
     #[inline] pub fn key(&self) -> u64 { self.key }
@@ -339,11 +374,11 @@ impl Position {
         if let Some(Piece { kind: PieceKind::Rook, .. }) = captured { self.clear_rook_right(to); }
     }
     fn clear_rook_right(&mut self, sq: Square) { match sq { 0 => self.castling &= !CASTLE_WQ, 7 => self.castling &= !CASTLE_WK, 56 => self.castling &= !CASTLE_BQ, 63 => self.castling &= !CASTLE_BK, _ => {} } }
-    fn xor_state_keys(&mut self) { let z = keys(); self.key ^= z.castle[self.castling as usize]; if let Some(ep) = self.ep { self.key ^= z.ep_file[file_of(ep) as usize]; } if self.side_to_move == Color::Black { self.key ^= z.side; } }
+    fn xor_state_keys(&mut self) { let z = keys(); self.key ^= z.castle[self.castling as usize]; if let Some(ep) = self.ep { if self.ep_capture_legal() { self.key ^= z.ep_file[file_of(ep) as usize]; } } if self.side_to_move == Color::Black { self.key ^= z.side; } }
     fn recompute_key(&self) -> u64 {
         let z = keys(); let mut k = z.castle[self.castling as usize];
         for sq in 0..64 { if let Some(p) = self.mailbox[sq] { k ^= z.piece[p.index()][sq]; } }
-        if let Some(ep) = self.ep { k ^= z.ep_file[file_of(ep) as usize]; }
+        if let Some(ep) = self.ep { if self.ep_capture_legal() { k ^= z.ep_file[file_of(ep) as usize]; } }
         if self.side_to_move == Color::Black { k ^= z.side; } k
     }
     fn add_piece(&mut self, piece: Piece, sq: Square) { debug_assert!(self.mailbox[sq as usize].is_none()); let bit = 1_u64 << sq; self.mailbox[sq as usize] = Some(piece); self.pieces[piece.index()] |= bit; self.occupancy[piece.color.index()] |= bit; self.all |= bit; self.key ^= keys().piece[piece.index()][sq as usize]; }

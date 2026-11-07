@@ -12,8 +12,13 @@ pub fn perft(position: &mut Position, depth: u8) -> u64 {
     nodes
 }
 
+/// Breaks the perft count down by root move. At depth zero there are no root
+/// moves to divide (the position itself is the single `perft(0) == 1` node),
+/// so the breakdown is empty rather than a list of `1`s that would sum to the
+/// move count instead of to one.
 pub fn divide(position: &mut Position, depth: u8) -> Vec<(Move, u64)> {
     let moves = position.legal_moves_mut(); let mut result = Vec::with_capacity(moves.len());
-    for mv in moves.iter().copied() { let undo = position.make_move_unchecked(mv); let nodes = if depth == 0 { 1 } else { perft(position, depth.saturating_sub(1)) }; position.unmake_move(mv, undo); result.push((mv, nodes)); }
+    if depth == 0 { return result; }
+    for mv in moves.iter().copied() { let undo = position.make_move_unchecked(mv); let nodes = perft(position, depth.saturating_sub(1)); position.unmake_move(mv, undo); result.push((mv, nodes)); }
     result
 }
