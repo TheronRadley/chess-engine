@@ -37,7 +37,7 @@ fn main() -> ExitCode {
             if divide { for (mv, n) in perft::divide(&mut position, d) { println!("{}: {}", mv.to_uci(), n); } } else { println!("nodes {}", perft::perft(&mut position, d)); }
         }
         "analyze" => {
-            let mut engine = Engine::new(hash); let limits = SearchLimits { depth: if depth.is_none() && movetime.is_none() && nodes.is_none() { Some(8) } else { depth }, movetime: movetime.map(Duration::from_millis), nodes, multipv };
+            let mut engine = Engine::new(hash); let limits = SearchLimits { depth: if depth.is_none() && movetime.is_none() && nodes.is_none() { Some(8) } else { depth }, movetime: movetime.map(Duration::from_millis), nodes, multipv, infinite: false };
             let result = engine.search(&mut position, limits, None);
             println!("Position: {}", position.to_fen()); println!("Depth {}, MultiPV {}", result.depth, multipv);
             for line in &result.lines {

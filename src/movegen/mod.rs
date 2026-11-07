@@ -174,8 +174,13 @@ pub fn see(position: &Position, mv: Move) -> i32 {
     if !position.legal_moves().iter().any(|&candidate| candidate == mv) { return 0; }
     if !mv.is_capture_kind() && position.piece_at(mv.to()).is_none() { return 0; }
     let victim = if mv.kind() == MoveKind::EnPassant { PieceKind::Pawn } else { match position.piece_at(mv.to()) { Some(p) => p.kind, None => return 0 } };
+    // A promoting pawn captures with a pawn but leaves a promoted piece behind,
+    // so the swap must credit the promotion gain (promoted piece minus pawn)
+    // or the recapture of the promoted piece would be over-counted against us.
+    let mut stand = piece_value(victim);
+    if let Some(promoted) = mv.promotion() { stand += piece_value(promoted) - piece_value(PieceKind::Pawn); }
     let mut copy = position.clone(); let _undo = copy.make_move_unchecked(mv); let side = copy.side_to_move();
-    piece_value(victim) - see_recapture(&mut copy, mv.to(), side, 0)
+    stand - see_recapture(&mut copy, mv.to(), side, 0)
 }
 pub fn see_ge(position: &Position, mv: Move, threshold: i32) -> bool { see(position, mv) >= threshold }
 fn see_recapture(position: &mut Position, target: Square, side: Color, ply: u8) -> i32 {

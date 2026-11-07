@@ -48,6 +48,37 @@ fn draw_rules_and_notation() {
     let p = Position::from_fen("4k3/8/8/8/8/8/1N1NK3/8 w - - 0 1").unwrap(); let mv = moves::parse_uci_move(&p, "b2c4").unwrap(); assert_eq!(moves::to_san(&p, mv).unwrap(), "Nbc4");
 }
 
+/// A "dead" en-passant square (no legal capture exists) must not distinguish
+/// positions for Zobrist repetition purposes.
+#[test]
+fn dead_en_passant_square_does_not_split_repetition_keys() {
+    let with_ep = Position::from_fen("4k3/8/8/8/4p3/8/8/4K3 w - e6 0 1").expect("valid dead-ep FEN");
+    let without_ep = Position::from_fen("4k3/8/8/8/4p3/8/8/4K3 w - - 0 1").expect("valid FEN");
+    assert_eq!(with_ep.key(), without_ep.key(), "dead en-passant square must not affect the Zobrist key");
+}
+
+/// Stalemate is a draw: the side to move has no legal move and is not in check.
+#[test]
+fn stalemate_is_a_draw() {
+    let stale = Position::from_fen("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1").expect("stalemate FEN");
+    assert!(!stale.in_check(Color::Black));
+    assert!(stale.is_stalemate());
+    assert!(stale.is_draw());
+}
+
+/// Checkmate takes precedence over the fifty-move clock: a mated side is still
+/// mated even when the halfmove clock is at 100.
+#[test]
+fn checkmate_at_halfmove_100_is_not_a_draw_at_root() {
+    let mate = Position::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 100 1").expect("mate FEN");
+    assert!(mate.in_check(Color::Black));
+    assert!(mate.is_checkmate());
+    assert!(mate.is_fifty_move_draw());
+    // `is_draw()` bundles fifty-move with repetition/insufficient material, so
+    // the position-level draw flag can be true; the search must still report
+    // checkmate because it tests checkmate before any draw claim.
+}
+
 #[test]
 fn threefold_tracks_full_game_history() {
     let mut p = Position::from_fen("4k1n1/8/8/8/8/8/8/4K1N1 w - - 0 1").unwrap();

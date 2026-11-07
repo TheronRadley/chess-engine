@@ -26,6 +26,14 @@ pub fn run() -> io::Result<()> {
         }
         match input_rx.recv_timeout(Duration::from_millis(10)) {
             Ok(line) => {
+                // Bound input size so a runaway or malicious stream cannot
+                // consume unbounded memory.
+                const MAX_INPUT_LEN: usize = 8192;
+                if line.len() > MAX_INPUT_LEN {
+                    let _ = writeln!(stdout, "info string error: input line too long (>{MAX_INPUT_LEN} bytes)");
+                    let _ = stdout.flush();
+                    continue;
+                }
                 let words = line.split_ascii_whitespace().collect::<Vec<_>>(); if words.is_empty() { continue; }
                 match words[0] {
                     "uci" => { write_line(&mut stdout, "id name Correctness First Rust Chess"); write_line(&mut stdout, "id author TheronRadley contributors"); write_line(&mut stdout, "option name Hash type spin default 16 min 1 max 4096"); write_line(&mut stdout, "option name MultiPV type spin default 1 min 1 max 5"); write_line(&mut stdout, "option name Threads type spin default 1 min 1 max 1"); write_line(&mut stdout, "uciok"); stdout.flush()?; }
@@ -44,6 +52,7 @@ pub fn run() -> io::Result<()> {
                     }
                     "stop" => { if let Some(a) = active.as_ref() { a.stop.store(true, std::sync::atomic::Ordering::Relaxed); } }
                     "quit" => { if let Some(a) = active.as_ref() { a.stop.store(true, std::sync::atomic::Ordering::Relaxed); } if let Some(a) = active.take() { let _ = a.join.join(); } quit = true; }
+                    "ponderhit" => { write_line(&mut stdout, "info string error: pondering is not supported"); stdout.flush()?; }
                     "debug" => { write_line(&mut stdout, "info string debug diagnostics are reported in final search info"); stdout.flush()?; }
                     _ => { write_line(&mut stdout, &format!("info string error: unsupported command `{}`", words[0])); stdout.flush()?; }
                 }
@@ -93,19 +102,22 @@ fn parse_position(words: &[&str]) -> Result<Position, String> {
 }
 
 fn parse_go(words: &[&str], side: crate::board::Color, multipv: usize) -> Result<SearchLimits, String> {
-    let mut limits = SearchLimits { depth: None, movetime: None, nodes: None, multipv }; let mut wtime = None; let mut btime = None; let mut winc = 0_u64; let mut binc = 0_u64; let mut i = 0;
+    let mut limits = SearchLimits { depth: None, movetime: None, nodes: None, multipv, infinite: false }; let mut wtime = None; let mut btime = None; let mut winc = 0_u64; let mut binc = 0_u64; let mut i = 0;
+    // Bound clock/time values so `Instant::now() + duration` cannot overflow.
+    const MAX_TIME_MS: u64 = 86_400_000; // 24 hours; far beyond any useful search
+    let cap_ms = |v: u64| v.min(MAX_TIME_MS);
     while i < words.len() {
         let need = |i: usize| words.get(i + 1).ok_or_else(|| format!("go {} needs a value", words[i]));
         match words[i] {
             "depth" => { limits.depth = Some(need(i)?.parse().map_err(|_| "go depth must be an integer".to_owned())?); i += 2; }
-            "movetime" => { limits.movetime = Some(Duration::from_millis(need(i)?.parse().map_err(|_| "go movetime must be milliseconds".to_owned())?)); i += 2; }
+            "movetime" => { limits.movetime = Some(Duration::from_millis(cap_ms(need(i)?.parse::<u64>().map_err(|_| "go movetime must be milliseconds".to_owned())?))); i += 2; }
             "nodes" => { limits.nodes = Some(need(i)?.parse().map_err(|_| "go nodes must be an integer".to_owned())?); i += 2; }
-            "wtime" => { wtime = Some(need(i)?.parse::<u64>().map_err(|_| "go wtime must be milliseconds".to_owned())?); i += 2; }
-            "btime" => { btime = Some(need(i)?.parse::<u64>().map_err(|_| "go btime must be milliseconds".to_owned())?); i += 2; }
+            "wtime" => { wtime = Some(cap_ms(need(i)?.parse::<u64>().map_err(|_| "go wtime must be milliseconds".to_owned())?)); i += 2; }
+            "btime" => { btime = Some(cap_ms(need(i)?.parse::<u64>().map_err(|_| "go btime must be milliseconds".to_owned())?)); i += 2; }
             "winc" => { winc = need(i)?.parse().map_err(|_| "go winc must be milliseconds".to_owned())?; i += 2; }
             "binc" => { binc = need(i)?.parse().map_err(|_| "go binc must be milliseconds".to_owned())?; i += 2; }
-            "infinite" => { i += 1; }
-            "ponder" => { i += 1; }
+            "infinite" => { limits.infinite = true; i += 1; }
+            "ponder" => return Err("pondering is not supported; send `stop` to end a search".into()),
             unknown => return Err(format!("unsupported go token `{unknown}`")),
         }
     }
@@ -115,7 +127,9 @@ fn parse_go(words: &[&str], side: crate::board::Color, multipv: usize) -> Result
             let soft = remain / 30 + inc.saturating_mul(3) / 4; let hard = soft.saturating_mul(3).min(remain.saturating_sub(5)).max(1); limits.movetime = Some(Duration::from_millis(hard));
         }
     }
-    if limits.depth.is_none() && limits.movetime.is_none() && limits.nodes.is_none() { limits.depth = Some(64); }
+    // `infinite` deliberately leaves every limit unset so the search runs until
+    // stopped; only fall back to a fixed depth for a bounded `go`.
+    if !limits.infinite && limits.depth.is_none() && limits.movetime.is_none() && limits.nodes.is_none() { limits.depth = Some(64); }
     Ok(limits)
 }
 
